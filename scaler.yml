@@ -1,0 +1,17 @@
+apiVersion: http.keda.sh/v1alpha1
+kind: HTTPScaledObject
+metadata:
+  name: gpu-coldstart-http
+spec:
+  hosts: 
+  - gpu-coldstart.default.svc.cluster.local
+  targetPendingRequests: 1
+  scaleTargetRef:
+    name: gpu-coldstart
+    kind: Deployment
+    apiVersion: apps/v1
+    service: gpu-coldstart
+    port: 80
+  replicas:
+    min: 0
+    max: 1
