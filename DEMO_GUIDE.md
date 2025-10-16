@@ -1,14 +1,10 @@
-# GPU Cold Start vs Warm Start Demo
-
-This demo showcases KEDA HTTP Add-on's ability to scale GPU workloads from 0 replicas, handling the cold start delay gracefully.
+# GPU Cold Start vs Warm Start
 
 ## Architecture
 
 - **FastAPI** app with GPU-based sentiment analysis (DistilBERT)
 - **KEDA HTTP Add-on** for HTTP-based autoscaling (0-1 replicas)
 - **Kubernetes** with NVIDIA GPU support
-
-## What Gets Demonstrated
 
 ### Cold Start (First Request)
 - Pod scheduled from 0 replicas

@@ -17,6 +17,15 @@ spec:
         - name: gpu-coldstart
           image: gpu-demo:latest
           imagePullPolicy: IfNotPresent
+          env:
+            - name: TRANSFORMERS_CACHE
+              value: /models/hf
+            - name: HF_HOME
+              value: /models/hf
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            - name: HF_HUB_DISABLE_TELEMETRY
+              value: "1"
           resources:
             requests:
               cpu: "500m"

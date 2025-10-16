@@ -1,0 +1,62 @@
+Provision a raw VM with gpu
+rsync -r ~/Codes/AtlantaDemo/ user@206.168.80.3:/home/user
+ssh user@38.29.145.185 "cat > /home/user/test.txt" < ~/Desktop/nvidia.yml
+
+Install Nvidia Drivers
+Sudo apt update and upgrade
+Get nvidia drivers repo [sudo add-apt-repository ppa:graphics-drivers/ppa -y]
+Update again
+sudo apt install ubuntu-drivers-common
+sudo ubuntu-drivers devices -> Get recommended drivers
+[sudo apt install -y nvidia-driver-580-open], 580 is rec, for Ubuntu 24
+Remove any past nvidia installation and do a fresh one
+Sudo reboot, Nvidia-smi should work after this
+
+Install docker and test it 
+sudo apt install -y docker.io
+add user to docker group [sudo usermod -aG docker $USER, newgrp docker]exec su -l $USER
+docker run hello-world
+
+Install NVIDIA container toolkit [https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html]
+nvidia-container-toolkit
+├── nvidia-container-runtime   ← the runtime that integrates with Docker/containerd
+├── libnvidia-container        ← low-level library that manages GPU access
+└── nvidia-container-cli       ← command-line interface
+sudo nvidia-ctk runtime configure --runtime=docker then restart
+Make containerd default runtime
+Docker pulls image by default, ctr doesn't [docker run --rm --gpus all nvidia/cuda:13.0.1-runtime-ubuntu24.04 nvidia-smi] - this should work
+sudo ctr images pull docker.io/nvidia/cuda:13.0.1-runtime-ubuntu24.04
+sudo ctr run --rm --runtime io.containerd.runc.v2 --runc-binary /usr/bin/nvidia-container-runtime docker.io/nvidia/cuda:13.0.1-runtime-ubuntu24.04 test nvidia-smi
+
+Install Kubernetes [k3s]
+curl -sfL https://get.k3s.io | sh -
+sudo chmod 644 /etc/rancher/k3s/k3s.yaml
+NVIDIA Device Plugin for Kubernetes from nvidia.yml
+kubectl apply -f nv.yml
+kubectl logs -n kube-system nvidia-device-plugin-daemonset-25hfb
+Now apply a test-pod and it should run, delete it afterwards to free gpu
+
+KEDA Autoscaling - Kubernetes Event-driven Autoscaling
+kubectl create namespace keda
+sudo snap install helm --classic
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown $USER:$USER ~/.kube/config
+helm install keda kedacore/keda --namespace keda --create-namespace
+helm install http-add-on kedacore/keda-add-ons-http --namespace keda
+
+docker build -t gpu-demo:latest .
+sudo docker save gpu-demo:latest | sudo k3s ctr images import -
+
+Running the App
+kubectl apply -f depc.yml [App in container on 8000, deployment on 80]
+kubectl apply -f scaler.yml
+
+kubectl port-forward svc/keda-add-ons-http-interceptor-proxy -n keda 8080:8080
+
+kubectl set env deployment/keda-add-ons-http-interceptor -n keda KEDA_RESPONSE_HEADER_TIMEOUT=60s KEDA_CONDITION_WAIT_TIMEOUT=90s KEDA_HTTP_CONNECT_TIMEOUT=10s
+
+
+./demo.sh

@@ -11,8 +11,13 @@ NC='\033[0m'
 HOST="gpu-coldstart.default.svc.cluster.local"
 URL="http://localhost:8080/predict?text=I%20love%20this%20amazing%20demo"
 
+# helpers for timing and json 
+ToEpoch() { date -d "$1" +%s.%N; } 
+GetNewestPod() { kubectl get pods -l app=gpu-coldstart -o json | jq -r '.items | max_by(.metadata.creationTimestamp) | .metadata.name'; } 
+SafeNum() { test -n "$1" && echo "$1" || echo "0"; }
+
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   GPU Cold Start vs Warm Start Demo   ${NC}"
+echo -e "${BLUE}   GPU Cold Start vs Warm Start Test   ${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
 echo -e "${YELLOW}Step 1: Scaling deployment to 0 replicas...${NC}"
@@ -25,13 +30,37 @@ echo ""
 
 read -p "Press Enter to test COLD START (pod scaled from 0)..."
 
-echo -e "\n${RED}🧊 COLD START TEST${NC}"
+echo -e "\n${RED} COLD START TEST${NC}"
 echo -e "Timing complete cold start (pod creation + GPU init + model load + inference)...\n"
-
 START=$(date +%s.%N)
 RESPONSE=$(curl -s -H "Host: $HOST" "$URL" 2>&1)
 HTTP_CODE=$?
 END=$(date +%s.%N)
+
+# breakdown (best-effort from pod timestamps)
+newPod=$(GetNewestPod || true)
+if [ -n "$newPod" ]; then 
+    createdTs=$(kubectl get pod "$newPod" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)
+    startedTs=$(kubectl get pod "$newPod" -o json | jq -r '.status.containerStatuses[0].state.running.startedAt // empty' 2>/dev/null || true)
+    readyTs=$(kubectl get pod "$newPod" -o json | jq -r '.status.conditions[] | select(.type=="Ready") | .lastTransitionTime' 2>/dev/null || true)
+    
+    createdS=$(ToEpoch "$(SafeNum "$createdTs")" 2>/dev/null || echo 0)
+    startedS=$(ToEpoch "$(SafeNum "$startedTs")" 2>/dev/null || echo 0)
+    readyS=$(ToEpoch "$(SafeNum "$readyTs")" 2>/dev/null || echo 0) 
+    
+    reqToCreate=$(echo "$createdS - $START" | bc 2>/dev/null)
+    createToStart=$(echo "$startedS - $createdS" | bc 2>/dev/null)
+    startToReady=$(echo "$readyS - $startedS" | bc 2>/dev/null)
+    
+    readyToResp=$(echo "$END - $readyS" | bc 2>/dev/null)
+    
+    echo -e "${YELLOW}Cold Start Breakdown (approx):${NC}"
+    echo "- Request -> PodCreated: ${reqToCreate}s"
+    echo "- PodCreated -> ContainerStarted: ${createToStart}s"
+    echo "- ContainerStarted -> Ready: ${startToReady}s"
+    echo "- Ready -> FirstResponse: ${readyToResp}s"
+    echo "" 
+fi
 
 TOTAL_TIME=$(echo "$END - $START" | bc)
 
@@ -54,7 +83,7 @@ echo ""
 
 read -p "Press Enter to test WARM START (pod already running)..."
 
-echo -e "\n${GREEN}🔥 WARM START TEST${NC}"
+echo -e "\n${GREEN}WARM START TEST${NC}"
 echo -e "Timing warm request (inference only)...\n"
 
 START=$(date +%s.%N)
@@ -77,11 +106,6 @@ echo -e "Curl exit code: $HTTP_CODE"
 echo ""
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}           Demo Complete!               ${NC}"
+echo -e "${BLUE}           Test Complete!               ${NC}"
 echo -e "${BLUE}========================================${NC}"
-echo -e "\n${YELLOW}Key Observations:${NC}"
-echo -e "1. Cold start includes: pod scheduling, container start, GPU init, model loading"
-echo -e "2. Warm start is just inference time (milliseconds vs seconds)"
-echo -e "3. KEDA HTTP Add-on handles queuing during cold start"
-echo ""
 
